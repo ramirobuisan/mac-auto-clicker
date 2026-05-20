@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# Compiled app and binaries
+MacAutoClicker.app/
+MacAutoClicker
+
+# Build artifacts & logs
+build/
+*.log
+.system_generated/
