@@ -84,13 +84,6 @@ enum ClickType: Int, CaseIterable, Identifiable {
     }
 }
 
-struct HotkeyOption: Identifiable, Hashable {
-    let id: String
-    let name: String
-    let keyCode: UInt32
-    let modifiers: UInt32
-}
-
 // MARK: - Carbon Hotkey Bridge
 
 class HotkeyManager {
@@ -158,40 +151,109 @@ class HotkeyManager {
 // MARK: - UI Hotkey Manager
 
 class UIHotkeyManager: ObservableObject {
-    @Published var selectedIndex: Int = 5 { // Default F6 (index 5)
+    @Published var keyCode: UInt32 = 97 { // Default F6 (keyCode 97)
         didSet {
             registerCurrent()
         }
     }
-    
-    let options: [HotkeyOption] = [
-        HotkeyOption(id: "F1", name: "F1", keyCode: 122, modifiers: 0),
-        HotkeyOption(id: "F2", name: "F2", keyCode: 120, modifiers: 0),
-        HotkeyOption(id: "F3", name: "F3", keyCode: 99, modifiers: 0),
-        HotkeyOption(id: "F4", name: "F4", keyCode: 118, modifiers: 0),
-        HotkeyOption(id: "F5", name: "F5", keyCode: 96, modifiers: 0),
-        HotkeyOption(id: "F6", name: "F6", keyCode: 97, modifiers: 0),
-        HotkeyOption(id: "F7", name: "F7", keyCode: 98, modifiers: 0),
-        HotkeyOption(id: "F8", name: "F8", keyCode: 100, modifiers: 0),
-        HotkeyOption(id: "F9", name: "F9", keyCode: 101, modifiers: 0),
-        HotkeyOption(id: "F10", name: "F10", keyCode: 109, modifiers: 0),
-        HotkeyOption(id: "F11", name: "F11", keyCode: 103, modifiers: 0),
-        HotkeyOption(id: "F12", name: "F12", keyCode: 111, modifiers: 0),
-        // Cmd (256) + Shift (512) = 768
-        HotkeyOption(id: "CmdShiftS", name: "Cmd + Shift + S", keyCode: 1, modifiers: 256 | 512),
-        HotkeyOption(id: "CmdShiftC", name: "Cmd + Shift + C", keyCode: 8, modifiers: 256 | 512),
-        HotkeyOption(id: "CmdShiftK", name: "Cmd + Shift + K", keyCode: 40, modifiers: 256 | 512),
-        // Ctrl (4096) + Opt (2048) = 6144
-        HotkeyOption(id: "CtrlOptC", name: "Ctrl + Option + C", keyCode: 8, modifiers: 4096 | 2048)
-    ]
-    
-    var currentOption: HotkeyOption {
-        options[selectedIndex]
+    @Published var modifiers: UInt32 = 0 {
+        didSet {
+            registerCurrent()
+        }
     }
+    @Published var hotkeyName: String = "F6"
+    @Published var isRecording = false
     
     func registerCurrent() {
-        let opt = currentOption
-        HotkeyManager.shared.register(keyCode: opt.keyCode, modifiers: opt.modifiers, id: 1)
+        HotkeyManager.shared.register(keyCode: keyCode, modifiers: modifiers, id: 1)
+    }
+    
+    func updateHotkey(keyCode: UInt32, modifiers: UInt32, name: String) {
+        self.keyCode = keyCode
+        self.modifiers = modifiers
+        self.hotkeyName = name
+    }
+    
+    static func carbonModifiers(from cocoaFlags: NSEvent.ModifierFlags) -> UInt32 {
+        var carbonFlags: UInt32 = 0
+        if cocoaFlags.contains(.command) { carbonFlags |= 256 }
+        if cocoaFlags.contains(.shift) { carbonFlags |= 512 }
+        if cocoaFlags.contains(.option) { carbonFlags |= 2048 }
+        if cocoaFlags.contains(.control) { carbonFlags |= 4096 }
+        return carbonFlags
+    }
+    
+    static func modifierString(from cocoaFlags: NSEvent.ModifierFlags) -> String {
+        var str = ""
+        if cocoaFlags.contains(.control) { str += "⌃" }
+        if cocoaFlags.contains(.option) { str += "⌥" }
+        if cocoaFlags.contains(.shift) { str += "⇧" }
+        if cocoaFlags.contains(.command) { str += "⌘" }
+        return str
+    }
+    
+    static func keyString(from keyCode: UInt16) -> String {
+        switch keyCode {
+        case 122: return "F1"
+        case 120: return "F2"
+        case 99: return "F3"
+        case 118: return "F4"
+        case 96: return "F5"
+        case 97: return "F6"
+        case 98: return "F7"
+        case 100: return "F8"
+        case 101: return "F9"
+        case 109: return "F10"
+        case 103: return "F11"
+        case 111: return "F12"
+        case 53: return "Esc"
+        case 49: return "Space"
+        case 36: return "Return"
+        case 48: return "Tab"
+        case 51: return "Delete"
+        case 123: return "Left"
+        case 124: return "Right"
+        case 125: return "Down"
+        case 126: return "Up"
+        case 0: return "A"
+        case 11: return "B"
+        case 8: return "C"
+        case 2: return "D"
+        case 14: return "E"
+        case 3: return "F"
+        case 5: return "G"
+        case 4: return "H"
+        case 34: return "I"
+        case 38: return "J"
+        case 40: return "K"
+        case 37: return "L"
+        case 46: return "M"
+        case 45: return "N"
+        case 31: return "O"
+        case 35: return "P"
+        case 12: return "Q"
+        case 15: return "R"
+        case 1: return "S"
+        case 17: return "T"
+        case 32: return "U"
+        case 9: return "V"
+        case 13: return "W"
+        case 7: return "X"
+        case 16: return "Y"
+        case 6: return "Z"
+        case 29: return "0"
+        case 18: return "1"
+        case 19: return "2"
+        case 20: return "3"
+        case 21: return "4"
+        case 23: return "5"
+        case 22: return "6"
+        case 26: return "7"
+        case 28: return "8"
+        case 25: return "9"
+        default:
+            return "Key \(keyCode)"
+        }
     }
 }
 
@@ -475,6 +537,7 @@ struct ContentView: View {
     @State private var localMonitor: Any?
     @State private var mouseGlobalMonitor: Any?
     @State private var mouseLocalMonitor: Any?
+    @State private var recordingMonitor: Any?
     
     var body: some View {
         VStack(spacing: 16) {
@@ -742,13 +805,21 @@ struct ContentView: View {
                             Text("Global Hotkey")
                                 .font(.system(size: 11))
                             Spacer()
-                            Picker("", selection: $hotkeyMgr.selectedIndex) {
-                                ForEach(0..<hotkeyMgr.options.count, id: \.self) { idx in
-                                    Text(hotkeyMgr.options[idx].name).tag(idx)
+                            
+                            Button(action: {
+                                if hotkeyMgr.isRecording {
+                                    stopRecording()
+                                } else {
+                                    hotkeyMgr.isRecording = true
+                                    startRecording()
                                 }
+                            }) {
+                                Text(hotkeyMgr.isRecording ? "Press a Key..." : hotkeyMgr.hotkeyName)
+                                    .frame(width: 130)
+                                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
                             }
-                            .pickerStyle(.menu)
-                            .frame(width: 140)
+                            .buttonStyle(.bordered)
+                            .tint(hotkeyMgr.isRecording ? .red : .purple)
                         }
                         .padding(.vertical, 4)
                     }
@@ -850,6 +921,7 @@ struct ContentView: View {
         .onDisappear {
             HotkeyManager.shared.unregister()
             clearMouseMonitors()
+            stopRecording()
             stopPicking()
         }
         .onChange(of: engine.activationMode) { _ in
@@ -928,6 +1000,34 @@ struct ContentView: View {
         if let monitor = localMonitor {
             NSEvent.removeMonitor(monitor)
             localMonitor = nil
+        }
+    }
+    
+    func startRecording() {
+        stopRecording()
+        
+        recordingMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
+            let code = UInt32(event.keyCode)
+            let cocoaFlags = event.modifierFlags
+            let carbonFlags = UIHotkeyManager.carbonModifiers(from: cocoaFlags)
+            
+            let modStr = UIHotkeyManager.modifierString(from: cocoaFlags)
+            let keyStr = UIHotkeyManager.keyString(from: event.keyCode)
+            let fullName = modStr + keyStr
+            
+            DispatchQueue.main.async {
+                hotkeyMgr.updateHotkey(keyCode: code, modifiers: carbonFlags, name: fullName)
+                self.stopRecording()
+            }
+            return nil // swallow event
+        }
+    }
+    
+    func stopRecording() {
+        hotkeyMgr.isRecording = false
+        if let monitor = recordingMonitor {
+            NSEvent.removeMonitor(monitor)
+            recordingMonitor = nil
         }
     }
     
