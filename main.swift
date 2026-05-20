@@ -5,6 +5,36 @@ import Combine
 
 // MARK: - Enums & Models
 
+enum ActivationMode: Int, CaseIterable, Identifiable {
+    case toggle = 0
+    case holdHotkey = 1
+    case holdMouse = 2
+    
+    var id: Int { self.rawValue }
+    var description: String {
+        switch self {
+        case .toggle: return "Toggle"
+        case .holdHotkey: return "Hold Hotkey"
+        case .holdMouse: return "Hold Mouse"
+        }
+    }
+}
+
+enum TriggerMouseButton: Int, CaseIterable, Identifiable {
+    case middle = 0
+    case right = 1
+    case left = 2
+    
+    var id: Int { self.rawValue }
+    var description: String {
+        switch self {
+        case .middle: return "Middle Button"
+        case .right: return "Right Button"
+        case .left: return "Left Button"
+        }
+    }
+}
+
 enum ClickLocationMode: Int, CaseIterable, Identifiable {
     case current = 0
     case fixed = 1
@@ -82,8 +112,10 @@ class HotkeyManager {
             &hotKeyID
         )
         if status == noErr {
+            let eventKind = GetEventKind(event)
+            let isPressed = eventKind == UInt32(kEventHotKeyPressed)
             DispatchQueue.main.async {
-                NotificationCenter.default.post(name: Notification.Name("GlobalHotKeyPressed"), object: nil, userInfo: ["id": hotKeyID.id])
+                NotificationCenter.default.post(name: Notification.Name("GlobalHotKeyPressed"), object: nil, userInfo: ["id": hotKeyID.id, "isPressed": isPressed])
             }
         }
         return noErr
@@ -92,10 +124,13 @@ class HotkeyManager {
     func register(keyCode: UInt32, modifiers: UInt32, id: UInt32) {
         unregister()
         
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        var eventTypes = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+        ]
         let target = GetApplicationEventTarget()
         
-        let statusHandler = InstallEventHandler(target, hotKeyHandler, 1, &eventType, nil, &handlerRef)
+        let statusHandler = InstallEventHandler(target, hotKeyHandler, 2, &eventTypes, nil, &handlerRef)
         guard statusHandler == noErr else {
             print("Failed to install Carbon event handler: \(statusHandler)")
             return
@@ -219,6 +254,8 @@ class ClickerEngine: ObservableObject {
     @Published var selectedClickType: ClickType = .single
     @Published var holdDurationMs: Double = 10.0 // Default hold 10ms
     @Published var useJitter = false
+    @Published var activationMode: ActivationMode = .toggle
+    @Published var triggerButton: TriggerMouseButton = .middle
     
     @Published var clickLocationMode: ClickLocationMode = .current
     @Published var fixedPoint: CGPoint = .zero
@@ -319,7 +356,9 @@ class ClickerEngine: ObservableObject {
             let down1 = CGEvent(mouseEventSource: source, mouseType: downType, mouseCursorPosition: targetPoint, mouseButton: cgButton)
             let up1 = CGEvent(mouseEventSource: source, mouseType: upType, mouseCursorPosition: targetPoint, mouseButton: cgButton)
             down1?.setIntegerValueField(.mouseEventClickState, value: 1)
+            down1?.setIntegerValueField(.eventSourceUserData, value: 12345)
             up1?.setIntegerValueField(.mouseEventClickState, value: 1)
+            up1?.setIntegerValueField(.eventSourceUserData, value: 12345)
             
             down1?.post(tap: .cghidEventTap)
             if holdDurationMs > 0 { Thread.sleep(forTimeInterval: holdDurationMs / 1000.0) }
@@ -331,7 +370,9 @@ class ClickerEngine: ObservableObject {
             let down2 = CGEvent(mouseEventSource: source, mouseType: downType, mouseCursorPosition: targetPoint, mouseButton: cgButton)
             let up2 = CGEvent(mouseEventSource: source, mouseType: upType, mouseCursorPosition: targetPoint, mouseButton: cgButton)
             down2?.setIntegerValueField(.mouseEventClickState, value: 2)
+            down2?.setIntegerValueField(.eventSourceUserData, value: 12345)
             up2?.setIntegerValueField(.mouseEventClickState, value: 2)
+            up2?.setIntegerValueField(.eventSourceUserData, value: 12345)
             
             down2?.post(tap: .cghidEventTap)
             if holdDurationMs > 0 { Thread.sleep(forTimeInterval: holdDurationMs / 1000.0) }
@@ -340,12 +381,14 @@ class ClickerEngine: ObservableObject {
             // Single Click
             let down = CGEvent(mouseEventSource: source, mouseType: downType, mouseCursorPosition: targetPoint, mouseButton: cgButton)
             down?.setIntegerValueField(.mouseEventClickState, value: 1)
+            down?.setIntegerValueField(.eventSourceUserData, value: 12345)
             down?.post(tap: .cghidEventTap)
             
             if holdDurationMs > 0 { Thread.sleep(forTimeInterval: holdDurationMs / 1000.0) }
             
             let up = CGEvent(mouseEventSource: source, mouseType: upType, mouseCursorPosition: targetPoint, mouseButton: cgButton)
             up?.setIntegerValueField(.mouseEventClickState, value: 1)
+            up?.setIntegerValueField(.eventSourceUserData, value: 12345)
             up?.post(tap: .cghidEventTap)
         }
     }
@@ -430,6 +473,8 @@ struct ContentView: View {
     
     @State private var globalMonitor: Any?
     @State private var localMonitor: Any?
+    @State private var mouseGlobalMonitor: Any?
+    @State private var mouseLocalMonitor: Any?
     
     var body: some View {
         VStack(spacing: 16) {
@@ -707,6 +752,34 @@ struct ContentView: View {
                         }
                         .padding(.vertical, 4)
                     }
+                    
+                    // Activation Mode Group
+                    GroupBox(label: Label("Activation Mode", systemImage: "hand.tap").font(.system(size: 11, weight: .bold))) {
+                        VStack(spacing: 8) {
+                            Picker("", selection: $engine.activationMode) {
+                                ForEach(ActivationMode.allCases) { mode in
+                                    Text(mode.description).tag(mode)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            
+                            if engine.activationMode == .holdMouse {
+                                HStack {
+                                    Text("Trigger Mouse Button")
+                                        .font(.system(size: 11))
+                                    Spacer()
+                                    Picker("", selection: $engine.triggerButton) {
+                                        ForEach(TriggerMouseButton.allCases) { button in
+                                            Text(button.description).tag(button)
+                                        }
+                                    }
+                                    .pickerStyle(.menu)
+                                    .frame(width: 140)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
                 }
                 .padding(.horizontal, 16)
             }
@@ -739,8 +812,26 @@ struct ContentView: View {
             window.standardWindowButton(.miniaturizeButton)?.isHidden = false
         })
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("GlobalHotKeyPressed"))) { notification in
-            // Handle global hotkey toggle
-            engine.toggle()
+            guard let userInfo = notification.userInfo,
+                  let isPressed = userInfo["isPressed"] as? Bool else {
+                engine.toggle()
+                return
+            }
+            
+            switch engine.activationMode {
+            case .toggle:
+                if isPressed {
+                    engine.toggle()
+                }
+            case .holdHotkey:
+                if isPressed {
+                    engine.start()
+                } else {
+                    engine.stop()
+                }
+            case .holdMouse:
+                break // Managed by mouse monitors
+            }
         }
         .onReceive(Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()) { _ in
             // Corner stopping check
@@ -754,10 +845,18 @@ struct ContentView: View {
         }
         .onAppear {
             hotkeyMgr.registerCurrent()
+            setupMouseMonitors()
         }
         .onDisappear {
             HotkeyManager.shared.unregister()
+            clearMouseMonitors()
             stopPicking()
+        }
+        .onChange(of: engine.activationMode) { _ in
+            setupMouseMonitors()
+        }
+        .onChange(of: engine.triggerButton) { _ in
+            setupMouseMonitors()
         }
     }
     
@@ -829,6 +928,80 @@ struct ContentView: View {
         if let monitor = localMonitor {
             NSEvent.removeMonitor(monitor)
             localMonitor = nil
+        }
+    }
+    
+    func setupMouseMonitors() {
+        clearMouseMonitors()
+        
+        guard engine.activationMode == .holdMouse else { return }
+        
+        var mask: NSEvent.EventTypeMask = []
+        switch engine.triggerButton {
+        case .middle:
+            mask = [.otherMouseDown, .otherMouseUp]
+        case .right:
+            mask = [.rightMouseDown, .rightMouseUp]
+        case .left:
+            mask = [.leftMouseDown, .leftMouseUp]
+        }
+        
+        mouseGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { event in
+            handleMouseEvent(event)
+        }
+        
+        mouseLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { event in
+            handleMouseEvent(event)
+            return event
+        }
+    }
+    
+    func clearMouseMonitors() {
+        if let monitor = mouseGlobalMonitor {
+            NSEvent.removeMonitor(monitor)
+            mouseGlobalMonitor = nil
+        }
+        if let monitor = mouseLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            mouseLocalMonitor = nil
+        }
+    }
+    
+    func handleMouseEvent(_ event: NSEvent) {
+        if let cgEvent = event.cgEvent, cgEvent.getIntegerValueField(.eventSourceUserData) == 12345 {
+            return
+        }
+        
+        let isDown: Bool
+        let eventType = event.type
+        
+        switch engine.triggerButton {
+        case .middle:
+            isDown = eventType == .otherMouseDown && event.buttonNumber == 2
+        case .right:
+            isDown = eventType == .rightMouseDown
+        case .left:
+            isDown = eventType == .leftMouseDown
+        }
+        
+        let isUp: Bool
+        switch engine.triggerButton {
+        case .middle:
+            isUp = eventType == .otherMouseUp && event.buttonNumber == 2
+        case .right:
+            isUp = eventType == .rightMouseUp
+        case .left:
+            isUp = eventType == .leftMouseUp
+        }
+        
+        if isDown {
+            DispatchQueue.main.async {
+                engine.start()
+            }
+        } else if isUp {
+            DispatchQueue.main.async {
+                engine.stop()
+            }
         }
     }
 }
