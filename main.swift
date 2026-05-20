@@ -1004,8 +1004,10 @@ struct ContentView: View {
     }
     
     func startRecording() {
-        stopRecording()
-        
+        if let monitor = recordingMonitor {
+            NSEvent.removeMonitor(monitor)
+            recordingMonitor = nil
+        }
         recordingMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
             let code = UInt32(event.keyCode)
             let cocoaFlags = event.modifierFlags
@@ -1112,6 +1114,10 @@ struct ContentView: View {
 struct MacAutoClickerApp: App {
     @StateObject private var engine = ClickerEngine()
     @StateObject private var hotkeyMgr = UIHotkeyManager()
+    
+    init() {
+        setbuf(stdout, nil)
+    }
     
     var body: some Scene {
         Window("Mac Auto Clicker", id: "main") {
